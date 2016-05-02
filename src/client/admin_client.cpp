@@ -134,6 +134,7 @@ admin_client::_do_run_command( admin_message::buffer_type const& command, int ti
   // I'm still not exactly clear on the latency penalties, but the maintainability is top-notch.
   //
   // Handles onError by logging the cause and returning an empty string
+  // Handles onTimeout after 5 seconds by logging and returning an empty string
   return _async_write( command)
            .then( &admin_client::_async_read_header, static_cast<message_base<admin_message> *>( this))
            .then( &admin_client::_async_read_body, static_cast<message_base<admin_message> *>( this))
