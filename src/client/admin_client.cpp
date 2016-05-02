@@ -1,4 +1,4 @@
-#include "admin_client.hpp"
+#include "client/admin_client.hpp"
 
 #include <deque>
 #include <iostream>
@@ -64,7 +64,6 @@ admin_client::_do_login() {
 
   return _do_run_command( login, 5)
           .then( [] ( admin_message::buffer_type const& rsp) {
-            std::cout << rsp << std::endl;
             if ( !rsp.empty() && rsp.find( "matt") != std::string::npos) {
               return true;
             }

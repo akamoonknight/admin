@@ -1,5 +1,5 @@
-admin_client: admin_client.cpp admin_client.hpp message_base.hpp message_base-inl.hpp
-	g++ -std=c++11 -I. -I/usr/local/include -L/usr/local/include admin_client.cpp -o admin_client -lboost_system -lfolly -lglog -pthread
+admin_client: src/client/admin_client.cpp include/client/admin_client.hpp include/message_base.hpp include/message_base-inl.hpp
+	g++ -std=c++11 -I./include -I/usr/local/include -L/usr/local/lib src/client/admin_client.cpp -o bin/admin_client -lboost_system -lfolly -lglog -pthread
 	
 simple_server:
-	g++ -std=c++11 -I. -I/usr/local/include -L/usr/local/include simple_server.cpp -o simple_server -lboost_system -lfolly -lglog -pthread
+	g++ -std=c++11 -I./include -I/usr/local/include -L/usr/local/lib src/server/simple_server.cpp -o bin/simple_server -lboost_system -lfolly -lglog -pthread
