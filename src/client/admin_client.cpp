@@ -20,6 +20,12 @@
 // behaviour from the existing code if the user of this code decides it can handle asynchronicity.
 // This type of code should alse be far easier to extend and add features to than corresponding
 // callback based code. At least in my opinion.
+//
+// One complaint I could foresee is losing track of where errors/timeouts are handled or not, but
+// to that I'd say that as long as the person below you is following the rules regarding which things
+// they return in the error/timeout cases then it doesn't really matter, they'll handle things how
+// they want to handle them and then you can handle them yourself as well if you want to. Error and
+// timeout handling should probably be relatively well documented though.
 
 admin_client::admin_client( boost::asio::io_service & io_service)
   : message_base( io_service)
@@ -44,7 +50,8 @@ admin_client::connect( std::string const& host, std::string const& port) {
 
   if ( _connected && !_logged_in) {
     // do login catches exceptions, and returns
-    // whether the logging in process completed
+    // whether the logging in process completed.
+    // Get the result of the future immediately.
     _do_login()
       .then( [ this ] ( bool logged_in) {
         _logged_in = logged_in;
@@ -62,7 +69,8 @@ admin_client::run_command( std::string const& command, std::string & response, i
 
   // do run command catches exceptions, just
   // assign response and return whether anything
-  // got filled out
+  // got filled out. Get the result of the future
+  // immediately.
   return _do_run_command( command, timeout)
            .then( [ &response ] ( admin_message::buffer_type const& rsp) {
              response = rsp;
@@ -72,10 +80,12 @@ admin_client::run_command( std::string const& command, std::string & response, i
 
 folly::Future<bool>
 admin_client::_do_connect( std::string const& host, std::string const& port) {
-  // async connect will try to connect, could
-  // potentially throw an exception or timeout
+  // async connect will try to connect
+  // then do standard error and timeout handling
+  //
+  // Handles onError by logging the cause and returning false.
+  // Handle onTimeout after 5 seconds by logging and returning false.
   return _async_connect( host, port)
-           // standard error and timeout handling
            .onError( [] ( std::exception const& e) {
              std::cout << "admin_client::_do_connect() - error: " << e.what() << std::endl;
              return false;
@@ -91,16 +101,18 @@ admin_client::_do_login() {
   std::string login = "matt@mba-rx";
 
   // login is backed by a run command.
-  // need to see 'Login' in response
+  // then check to make sure we got a response and that it contains 'Login'
+  // then do standard error and timeout handling
+  //
+  // Handles onError by logging the cause and returing false
+  // Handles onTimeout after 10 seconds by logging and returning false
   return _do_run_command( login, 5)
-          // check if the response contains required information
           .then( [] ( admin_message::buffer_type const& rsp) {
             if ( !rsp.empty() && rsp.find( "Login") != std::string::npos) {
               return true;
             }
             throw std::runtime_error( "Unable to login");
           })
-          // standard error and timeout handling
           .onError( [] ( std::exception const& e) {
             std::cout << "admin_client::_do_login() - error: " << e.what() << std::endl;
             return false;
@@ -114,26 +126,25 @@ admin_client::_do_login() {
 folly::Future<admin_message::buffer_type>
 admin_client::_do_run_command( admin_message::buffer_type const& command, int timeout) {
   // first do a write of the command
+  // then read the header (there needs to be a static cast because of folly not liking something about the bind to _async_read_header)
+  // then read the body (there needs to be a static cast because of folly not liking something about the bind to _async_read_body)
+  // then standard error and timeout handling
+  // if desired, at any point in the chain we could add logging/persistence layers in a quite
+  // painless fashion, just attach another then command.
+  // I'm still not exactly clear on the latency penalties, but the maintainability is top-notch.
+  //
+  // Handles onError by logging the cause and returning an empty string
   return _async_write( command)
-           // then read the header (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
            .then( &admin_client::_async_read_header, static_cast<message_base<admin_message> *>( this))
-           // then read the body (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
            .then( &admin_client::_async_read_body, static_cast<message_base<admin_message> *>( this))
-           // standard error and timeout handling
            .onError( [] ( std::exception const& e) {
              std::cout << "admin_client::_do_run_command - error: " << e.what() << std::endl;
-             return admin_message::buffer_type( "");
+             return admin_message::buffer_type( ""); // need to return the same type as the previous future
            })
            .onTimeout( std::chrono::seconds( 5), [] () {
              std::cout << "admin_client::_do_run_command - timeout" << std::endl;
-             return admin_message::buffer_type( "");
+             return admin_message::buffer_type( ""); // need to return the same type as the previous future
            });
-
-  // The lovely part about this is that it should be relatively easy to
-  // add things like persistence or logging, they would just be extra
-  // then commands in the chain. Easy to read, easy to reason about,
-  // I'm not sure on the latency aspects, but the maintainability is
-  // top-notch I'd think.
 }
 
 int main(int argc, char* argv[]) {
