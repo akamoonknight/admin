@@ -6,6 +6,12 @@
 #include <thread>
 #include <cstdlib>
 
+// All the asynchronous wrappers for the boost commands are inside of message_base-inl.hpp
+// It takes a message type that tells it how to format and parse bytes as a template argument.
+// I think this is quite extensible and could be used for most things that have a header and
+// a body, which I would imagine is most things we will be sending, could definitely use some
+// refinement in regards to more general underlying message types though probably.
+
 admin_client::admin_client( boost::asio::io_service & io_service)
   : message_base( io_service)
   , _connected( false)
@@ -16,6 +22,11 @@ admin_client::admin_client( boost::asio::io_service & io_service)
 bool
 admin_client::connect( std::string const& host, std::string const& port) {
   if ( !_connected) {
+    // Do connect and get.
+    // If we wanted to split up the connect and login 
+    // phases and give the user more control over the
+    // timing of those operations, it'd be pretty easily
+    // doable.
     _do_connect( host, port)
       .then( [ this ] ( bool connected) {
         _connected = connected;
@@ -23,6 +34,8 @@ admin_client::connect( std::string const& host, std::string const& port) {
   }
 
   if ( _connected && !_logged_in) {
+    // do login catches exceptions, and returns
+    // whether the logging in process completed
     _do_login()
       .then( [ this ] ( bool logged_in) {
         _logged_in = logged_in;
@@ -34,10 +47,13 @@ admin_client::connect( std::string const& host, std::string const& port) {
 
 bool
 admin_client::run_command( std::string const& command, std::string & response, int timeout) {
-  if ( !_connected) {
+  if ( !_connected || !_logged_in) {
     return false;
   }
 
+  // do run command catches exceptions, just
+  // assign response and return whether anything
+  // got filled out
   return _do_run_command( command, timeout)
            .then( [ &response ] ( admin_message::buffer_type const& rsp) {
              response = rsp;
@@ -47,7 +63,10 @@ admin_client::run_command( std::string const& command, std::string & response, i
 
 folly::Future<bool>
 admin_client::_do_connect( std::string const& host, std::string const& port) {
+  // async connect will try to connect, could
+  // potentially throw an exception or timeout
   return _async_connect( host, port)
+           // standard error and timeout handling
            .onError( [] ( std::exception const& e) {
              std::cout << "admin_client::_do_connect() - error: " << e.what() << std::endl;
              return false;
@@ -62,13 +81,17 @@ folly::Future<bool>
 admin_client::_do_login() {
   std::string login = "matt@mba-rx";
 
+  // login is backed by a run command.
+  // need to see 'Login' in response
   return _do_run_command( login, 5)
+          // check if the response contains required information
           .then( [] ( admin_message::buffer_type const& rsp) {
-            if ( !rsp.empty() && rsp.find( "matt") != std::string::npos) {
+            if ( !rsp.empty() && rsp.find( "Login") != std::string::npos) {
               return true;
             }
             throw std::runtime_error( "Unable to login");
           })
+          // standard error and timeout handling
           .onError( [] ( std::exception const& e) {
             std::cout << "admin_client::_do_login() - error: " << e.what() << std::endl;
             return false;
@@ -81,9 +104,14 @@ admin_client::_do_login() {
 
 folly::Future<admin_message::buffer_type>
 admin_client::_do_run_command( admin_message::buffer_type const& command, int timeout) {
+  // first do a write of the command
   return _async_write( command)
+
+           // then read the header (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
            .then( &admin_client::_async_read_header, static_cast<message_base<admin_message> *>( this))
+           // then read the body (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
            .then( &admin_client::_async_read_body, static_cast<message_base<admin_message> *>( this))
+           // standard error and timeout handling
            .onError( [] ( std::exception const& e) {
              std::cout << "admin_client::_do_run_command - error: " << e.what() << std::endl;
              return admin_message::buffer_type( "");
@@ -92,6 +120,12 @@ admin_client::_do_run_command( admin_message::buffer_type const& command, int ti
              std::cout << "admin_client::_do_run_command - timeout" << std::endl;
              return admin_message::buffer_type( "");
            });
+
+  // The lovely part about this is that it should be relatively easy to
+  // add things like persistence or logging, they would just be extra
+  // then commands in the chain. Easy to read, easy to reason about,
+  // I'm not sure on the latency aspects, but the maintainability is
+  // top-notch I'd think.
 }
 
 int main(int argc, char* argv[]) {
