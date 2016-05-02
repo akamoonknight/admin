@@ -11,6 +11,15 @@
 // I think this is quite extensible and could be used for most things that have a header and
 // a body, which I would imagine is most things we will be sending, could definitely use some
 // refinement in regards to more general underlying message types though probably.
+//
+// Mostly this class uses futures and continuations. All of the 'thens' attach a new future that
+// relies on the result of the previous future and returns a new future with a new result. In
+// this way asynchronous operations can be chained together in a logical way.
+//
+// Most of this code ends up being sychronous, but it should be relatively easy to create asynchronous
+// behaviour from the existing code if the user of this code decides it can handle asynchronicity.
+// This type of code should alse be far easier to extend and add features to than corresponding
+// callback based code. At least in my opinion.
 
 admin_client::admin_client( boost::asio::io_service & io_service)
   : message_base( io_service)
@@ -106,7 +115,6 @@ folly::Future<admin_message::buffer_type>
 admin_client::_do_run_command( admin_message::buffer_type const& command, int timeout) {
   // first do a write of the command
   return _async_write( command)
-
            // then read the header (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
            .then( &admin_client::_async_read_header, static_cast<message_base<admin_message> *>( this))
            // then read the body (there needs to be a static cast because of folly not liking somethign about the bind to _async_read_header)
